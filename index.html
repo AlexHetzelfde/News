@@ -8,6 +8,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Briefing">
   <meta name="theme-color" content="#0A0E14">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <link rel="icon" href="./icon-192.png">
   <title>Briefing</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -366,18 +369,12 @@
       display: block; margin-bottom: 6px;
     }
 
-    .s-input {
-      width: 100%; background: var(--surface2);
-      border: 1px solid var(--border); border-radius: 8px;
-      padding: 10px 12px; color: var(--text); font-size: 14px;
-      margin-bottom: 5px; outline: none;
-      transition: border-color 0.15s;
-    }
-    .s-input:focus { border-color: var(--accent); }
-
     .s-hint {
-      font-size: 11.5px; color: var(--text-dimmer);
-      margin-bottom: 20px; line-height: 1.5;
+      font-size: 12.5px; color: var(--text-dim);
+      margin-bottom: 18px; line-height: 1.5;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 12px;
     }
     .s-hint a { color: var(--accent); }
 
@@ -387,6 +384,11 @@
       border: none; border-radius: 9px;
       font-size: 14px; font-weight: 800;
       letter-spacing: 0.06em; cursor: pointer;
+      margin-bottom: 10px;
+    }
+    .s-save.secondary {
+      background: none; color: var(--text-dim);
+      border: 1px solid var(--border);
     }
   </style>
 </head>
@@ -439,13 +441,12 @@
   <div class="sheet">
     <div class="sheet-handle"></div>
     <div class="sheet-title">⚙ INSTELLINGEN</div>
-    <label class="s-label">GEMINI API KEY</label>
-    <input class="s-input" type="text" id="geminiKeyInput" placeholder="AIza…" autocomplete="off" spellcheck="false">
+    <label class="s-label">CACHE</label>
+    <div class="s-hint" id="cacheInfo">—</div>
+    <button class="s-save secondary" onclick="clearCache()">CACHE WISSEN &amp; VERVERSEN</button>
     <div class="s-hint">
-      Gemini 1.5 Flash · gratis t/m 1.500 req/dag<br>
-      <a href="https://aistudio.google.com/app/apikey" target="_blank">→ Key aanmaken op Google AI Studio</a>
+      AI-samenvattingen lopen via een server-functie — er is geen API-key meer nodig in de app zelf.
     </div>
-    <button class="s-save" onclick="saveSettings()">OPSLAAN</button>
   </div>
 </div>
 
@@ -454,16 +455,17 @@
 //  CONFIG
 // ════════════════════════════════════════════════════════
 
-// Eigen Cloudflare Worker proxy (meest betrouwbaar).
-// Deploy worker.js via Cloudflare en vul hier je URL in.
-// Zolang leeg: valt terug op publieke proxies hieronder.
-const WORKER_URL = '';
-
+// Publieke fallback-proxies — alleen gebruikt als de eigen
+// Cloudflare Pages Function (/api/feed) niet bereikbaar is
+// (bv. bij lokaal testen zonder `wrangler pages dev`).
 const PUBLIC_PROXIES = [
   'https://corsproxy.io/?url=',
   'https://api.allorigins.win/raw?url=',
   'https://api.codetabs.com/v1/proxy?quest=',
 ];
+
+const CACHE_KEY = 'briefing_cache_v1';
+const CACHE_TTL = 5 * 60 * 1000; // 5 minuten — voorkomt onnodige herhaalde feed-calls
 
 // AbortSignal.any polyfill (zelfde als CalorieTracker)
 if (!AbortSignal.any) {
@@ -490,22 +492,31 @@ function timedFetch(url, ms = 20000) {
 }
 
 async function proxyFetch(feedUrl) {
-  const proxies = WORKER_URL
-    ? [WORKER_URL + '?url=', ...PUBLIC_PROXIES]
-    : PUBLIC_PROXIES;
+  // 1) Eigen Cloudflare Pages Function — geen CORS, geen rate-limit van derden,
+  //    en hier komt straks ook caching/headers-controle als dat nodig is.
+  try {
+    const r = await timedFetch('/api/feed?url=' + encodeURIComponent(feedUrl), 20000);
+    if (r.ok) {
+      console.log('[eigen proxy OK]', feedUrl);
+      return await r.text();
+    }
+  } catch (e) {
+    console.warn('[eigen proxy fail]', e.message);
+  }
 
+  // 2) Fallback: publieke proxies (alleen relevant zonder Cloudflare Functions)
   let lastErr;
-  for (let i = 0; i < proxies.length; i++) {
+  for (let i = 0; i < PUBLIC_PROXIES.length; i++) {
     try {
-      const r = await timedFetch(proxies[i] + encodeURIComponent(feedUrl), 20000);
+      const r = await timedFetch(PUBLIC_PROXIES[i] + encodeURIComponent(feedUrl), 20000);
       if (r.ok) {
-        console.log('[proxy OK]', proxies[i].split('/')[2]);
+        console.log('[publieke proxy OK]', PUBLIC_PROXIES[i].split('/')[2]);
         return await r.text();
       }
       throw new Error('HTTP ' + r.status);
     } catch(e) {
       lastErr = e;
-      console.warn('[proxy ' + i + ' fail]', proxies[i].split('/')[2], e.message);
+      console.warn('[publieke proxy fail]', PUBLIC_PROXIES[i].split('/')[2], e.message);
     }
   }
   throw lastErr;
@@ -535,10 +546,28 @@ const STOPWORDS = new Set([
   'de','het','een','van','in','is','op','te','dat','zijn','ook','niet','hij','ze','we','aan',
   'er','als','bij','dan','die','dit','door','maar','met','nog','om','over','uit','voor','wordt',
   'zich','naar','geen','meer','heeft','worden','werd','waren','haar','hun','zijn','zijn','heeft',
-  'kunnen','moet','gaat','jaar','twee','drie',
+  'kunnen','moet','gaat','jaar','twee','drie','onder','tussen','zonder',
   // NO
   'og','i','en','et','til','fra','er','ikke','som','på','med','at','av','men','har','seg','ble',
   'om','så','vi','bli','være','hun','ham','den','ny','nye','det','han','sin','sitt','de','for',
+]);
+
+// Woorden die als ENIGE overlap tussen twee titels niet genoeg zijn om te
+// clusteren — te generiek / te vaak toevallig gedeeld (bv. "school", "Nederland").
+// Tellen wél mee zodra er ook nog een ander, specifieker woord wordt gedeeld.
+const GENERIC_TOPIC_WORDS = new Set([
+  // EN
+  'school','schools','warning','warnings','win','wins','winning','world','tears',
+  'day','days','week','weekly','weekend','plan','plans','planning','help','helps',
+  'star','stars','says','year','years','news','top','home','life','lives','family',
+  'against','around','first','last','next','dead','death','deaths','killed',
+  'attack','attacks','attacked','court','police','trial','britain','british',
+  'england','english','scotland','scottish','london','government','minister',
+  // NL
+  'wekdienst','school','scholen','waarschuwt','waarschuwing','dood','overleden',
+  'politie','rechter','jaar','jaren','week','weken','dag','dagen','plan','plannen',
+  'hulp','ster','sterren','nieuws','leven','gezin','familie','tegen','nederland',
+  'nederlandse','regering','minister','kabinet',
 ]);
 
 // ════════════════════════════════════════════════════════
@@ -547,7 +576,6 @@ const STOPWORDS = new Set([
 let newsArticles   = [];
 let redditPosts    = [];
 let cachedClusters = [];
-let geminiKey      = localStorage.getItem('geminiKey') || '';
 
 // ════════════════════════════════════════════════════════
 //  UTILS
@@ -592,6 +620,45 @@ function keywords(text) {
 function ytId(url) {
   const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
   return m ? m[1] : null;
+}
+
+function isNsfw(p) {
+  if (/\[nsfw\]/i.test(p.title)) return true;
+  if (p.thumb === 'nsfw') return true;
+  return false;
+}
+
+// ════════════════════════════════════════════════════════
+//  CACHE
+// ════════════════════════════════════════════════════════
+function loadCache() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    data.newsArticles.forEach(a => a.date = new Date(a.date));
+    data.redditPosts.forEach(a => a.date = new Date(a.date));
+    return data;
+  } catch (e) {
+    console.warn('Cache lezen mislukt', e);
+    return null;
+  }
+}
+
+function saveCache(news, reddit) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      newsArticles: news, redditPosts: reddit, ts: Date.now()
+    }));
+  } catch (e) {
+    console.warn('Cache opslaan mislukt', e);
+  }
+}
+
+function clearCache() {
+  localStorage.removeItem(CACHE_KEY);
+  closeSettings();
+  refresh();
 }
 
 // ════════════════════════════════════════════════════════
@@ -663,56 +730,79 @@ function parseItem(el, feed, isAtom) {
 
 // ════════════════════════════════════════════════════════
 //  CLUSTER
+//
+//  Twee artikelen worden gekoppeld als ze:
+//   a) minstens één SPECIFIEK woord delen (niet in GENERIC_TOPIC_WORDS), of
+//   b) minstens TWEE woorden delen (ook als die generiek zijn)
+//  Gekoppelde artikelen worden via union-find getransitiveerd, zodat 3+
+//  bronnen over hetzelfde onderwerp automatisch in één cluster vallen.
 // ════════════════════════════════════════════════════════
 function cluster(articles) {
   const news = articles.filter(a => a.type === 'news' && a.title);
+  const kwLists = news.map(a => [...new Set(keywords(a.title))]);
 
-  // Keyword frequency — unique per article
-  const freq = {};
-  news.forEach(a => {
-    [...new Set(keywords(a.title))].forEach(w => { freq[w] = (freq[w]||0) + 1; });
-  });
+  const n = news.length;
+  const parent = Array.from({ length: n }, (_, i) => i);
+  function find(x) { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
+  function union(a, b) { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; }
 
-  // Words in 2+ articles, sorted by count
-  const topics = Object.entries(freq)
-    .filter(([,c]) => c >= 2)
-    .sort((a,b) => b[1]-a[1])
-    .map(([w]) => w);
-
-  const clusters = [];
-  const seen = new Set();
-
-  for (const topic of topics) {
-    const matches = news.filter(a => !seen.has(a.link) && keywords(a.title).includes(topic));
-    if (matches.length < 2) continue;
-    const bestTitle = matches.reduce((b,a) => a.title.length > b.title.length ? a : b).title;
-    clusters.push({ keyword:topic, title:bestTitle, articles:matches });
-    matches.forEach(a => seen.add(a.link));
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const shared = kwLists[i].filter(w => kwLists[j].includes(w));
+      if (!shared.length) continue;
+      const hasSpecific = shared.some(w => !GENERIC_TOPIC_WORDS.has(w));
+      if (hasSpecific || shared.length >= 2) union(i, j);
+    }
   }
 
-  const remaining = news.filter(a => !seen.has(a.link));
-  return { clusters: clusters.sort((a,b) => b.articles.length - a.articles.length), remaining };
+  const groups = {};
+  for (let i = 0; i < n; i++) {
+    const r = find(i);
+    (groups[r] = groups[r] || []).push(i);
+  }
+
+  const clusters = [];
+  const remaining = [];
+
+  Object.values(groups).forEach(idxs => {
+    if (idxs.length < 2) { remaining.push(news[idxs[0]]); return; }
+
+    const arts = idxs.map(i => news[i]);
+    const freq = {};
+    idxs.forEach(i => kwLists[i].forEach(w => { freq[w] = (freq[w] || 0) + 1; }));
+
+    const ranked = Object.entries(freq).filter(([, c]) => c >= 2).sort((a, b) => b[1] - a[1]);
+    const specific = ranked.find(([w]) => !GENERIC_TOPIC_WORDS.has(w));
+    const keyword = (specific || ranked[0] || [kwLists[idxs[0]][0] || 'topic'])[0];
+
+    const bestTitle = arts.reduce((b, a) => a.title.length > b.title.length ? a : b).title;
+    clusters.push({ keyword, title: bestTitle, articles: arts });
+  });
+
+  return { clusters: clusters.sort((a, b) => b.articles.length - a.articles.length), remaining };
 }
 
 // ════════════════════════════════════════════════════════
-//  GEMINI
+//  GEMINI — via eigen Cloudflare Pages Function
+//  (key staat als env var op de server, nooit in de browser)
 // ════════════════════════════════════════════════════════
 async function geminiSummary(articles) {
-  if (!geminiKey) { openSettings(); return null; }
-
   const titles = articles.map((a,i) => `${i+1}. [${a.source}] ${a.title}`).join('\n');
-  const prompt = `Schrijf een feitelijke Nederlandse samenvatting van maximaal 3 zinnen op basis van deze nieuwstitels over hetzelfde onderwerp. Geen inleiding, direct de kern.\n\n${titles}`;
 
   try {
-    const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
-      { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ contents:[{ parts:[{ text:prompt }] }] }) }
-    );
-    const d = await r.json();
-    return d.candidates?.[0]?.content?.parts?.[0]?.text || null;
+    const r = await timedFetch('/api/summarize', 20000) // placeholder to keep timedFetch signature familiar
+      .catch(() => null);
+    // /api/summarize needs a POST body, so do the actual call directly:
+    const resp = await fetch('/api/summarize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ titles })
+    });
+    const d = await resp.json();
+    if (d.error) { console.warn('Samenvatting-fout:', d.error); return null; }
+    return d.summary || null;
   } catch(e) {
-    console.warn('Gemini error', e);
+    console.warn('Gemini-gateway fout', e);
     return null;
   }
 }
@@ -736,7 +826,6 @@ function renderRecent(articles) {
 
 function articleCard(a) {
   const lang = a.lang;
-  const openUrl = lang !== 'nl' ? translateHref(a.link, lang) : a.link;
   const translateBtn = lang !== 'nl'
     ? `<a class="ca" href="${esc(translateHref(a.link,lang))}" target="_blank">🇳🇱 NL</a>` : '';
 
@@ -829,7 +918,7 @@ async function loadSummary(idx) {
     box.classList.add('visible');
     btn.style.display = 'none';
   } else {
-    btn.textContent = '◆ AI SAMENVATTING LADEN';
+    btn.textContent = '◆ NIET GELUKT — OPNIEUW PROBEREN';
     btn.disabled = false;
   }
 }
@@ -840,8 +929,10 @@ async function loadSummary(idx) {
 function renderMedia(posts) {
   const pane = document.getElementById('pane-media');
 
-  // Only posts that have some form of media
-  const media = posts.filter(p => p.mType || (p.thumb && p.thumb !== 'self' && p.thumb !== 'default' && p.thumb !== 'nsfw'));
+  // Alleen posts met media, zonder NSFW-gemarkeerde content
+  const media = posts
+    .filter(p => !isNsfw(p))
+    .filter(p => p.mType || (p.thumb && p.thumb !== 'self' && p.thumb !== 'default' && p.thumb !== 'nsfw'));
 
   if (!media.length) {
     pane.innerHTML = `<div class="state"><div class="state-ico">🎬</div><div class="state-title">Geen media gevonden</div><div class="state-msg">Reddit posts zonder beeld/video worden gefilterd</div></div>`;
@@ -862,11 +953,13 @@ function mediaCard(p) {
     const id = ytId(p.mUrl);
     if (id) top = `<div class="yt-wrap"><iframe src="https://www.youtube.com/embed/${id}" allowfullscreen loading="lazy"></iframe></div>`;
   } else if (p.mType === 'image' && p.mUrl) {
-    top = `<img class="img-preview" src="${esc(p.mUrl)}" loading="lazy" onerror="this.style.display='none'">`;
+    // referrerpolicy="no-referrer" is nodig omdat i.redd.it anders hotlink-protectie
+    // toepast op basis van de referrer-header en de afbeelding weigert.
+    top = `<img class="img-preview" src="${esc(p.mUrl)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">`;
   } else if (p.mType === 'reddit-video') {
     top = `<div class="reddit-vid-link">▶ <a href="${esc(p.link)}" target="_blank">Video bekijken op Reddit →</a></div>`;
   } else if (p.thumb) {
-    top = `<img class="img-preview" src="${esc(p.thumb)}" loading="lazy" onerror="this.style.display='none'" style="max-height:180px">`;
+    top = `<img class="img-preview" src="${esc(p.thumb)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'" style="max-height:180px">`;
   }
 
   if (!top) return '';
@@ -898,8 +991,14 @@ function switchTab(name, btn) {
 }
 
 // ════════════════════════════════════════════════════════
-//  REFRESH
+//  REFRESH / INIT
 // ════════════════════════════════════════════════════════
+function updateTimestamp(d) {
+  document.getElementById('lastUpdated').textContent =
+    d.getHours().toString().padStart(2,'0') + ':' +
+    d.getMinutes().toString().padStart(2,'0');
+}
+
 async function refresh() {
   const btn = document.getElementById('refreshBtn');
   btn.classList.add('spinning');
@@ -927,10 +1026,8 @@ async function refresh() {
     renderRelevantie(clusters, remaining);
     renderMedia(redditPosts);
 
-    const now = new Date();
-    document.getElementById('lastUpdated').textContent =
-      now.getHours().toString().padStart(2,'0') + ':' +
-      now.getMinutes().toString().padStart(2,'0');
+    saveCache(newsArticles, redditPosts);
+    updateTimestamp(new Date());
 
   } catch(e) {
     document.getElementById('pane-recent').innerHTML =
@@ -940,26 +1037,52 @@ async function refresh() {
   }
 }
 
+function init() {
+  const cached = loadCache();
+  if (cached && (Date.now() - cached.ts) < CACHE_TTL) {
+    newsArticles = cached.newsArticles;
+    redditPosts  = cached.redditPosts;
+    renderRecent(newsArticles);
+    const { clusters, remaining } = cluster(newsArticles);
+    renderRelevantie(clusters, remaining);
+    renderMedia(redditPosts);
+    updateTimestamp(new Date(cached.ts));
+  } else {
+    refresh();
+  }
+}
+
 // ════════════════════════════════════════════════════════
 //  SETTINGS
 // ════════════════════════════════════════════════════════
 function openSettings() {
-  document.getElementById('geminiKeyInput').value = geminiKey;
+  const cached = loadCache();
+  const info = document.getElementById('cacheInfo');
+  if (cached) {
+    const mins = Math.floor((Date.now() - cached.ts) / 60000);
+    info.textContent = `${cached.newsArticles.length} nieuwsartikelen, ${cached.redditPosts.length} reddit-posts · ${mins} min oud`;
+  } else {
+    info.textContent = 'Geen cache opgeslagen';
+  }
   document.getElementById('settingsOverlay').classList.add('open');
 }
 function closeSettings() {
   document.getElementById('settingsOverlay').classList.remove('open');
 }
-function saveSettings() {
-  geminiKey = document.getElementById('geminiKeyInput').value.trim();
-  localStorage.setItem('geminiKey', geminiKey);
-  closeSettings();
+
+// ════════════════════════════════════════════════════════
+//  PWA: service worker registreren
+// ════════════════════════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(e => console.warn('SW registratie mislukt', e));
+  });
 }
 
 // ════════════════════════════════════════════════════════
 //  INIT
 // ════════════════════════════════════════════════════════
-refresh();
+init();
 </script>
 </body>
 </html>
