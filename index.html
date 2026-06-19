@@ -453,27 +453,62 @@
 // ════════════════════════════════════════════════════════
 //  CONFIG
 // ════════════════════════════════════════════════════════
-const PROXIES = [
+
+// Eigen Cloudflare Worker proxy (meest betrouwbaar).
+// Deploy worker.js via Cloudflare en vul hier je URL in.
+// Zolang leeg: valt terug op publieke proxies hieronder.
+const WORKER_URL = '';
+
+const PUBLIC_PROXIES = [
   'https://corsproxy.io/?url=',
   'https://api.allorigins.win/raw?url=',
   'https://api.codetabs.com/v1/proxy?quest=',
 ];
 
-async function proxyFetch(url) {
-  for (let i = 0; i < PROXIES.length; i++) {
+// AbortSignal.any polyfill (zelfde als CalorieTracker)
+if (!AbortSignal.any) {
+  AbortSignal.any = function(signals) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 22000);
+    const onAbort = () => {
+      controller.abort();
+      for (const s of signals) { if (s) s.removeEventListener('abort', onAbort); }
+    };
+    for (const s of signals) {
+      if (!s) continue;
+      if (s.aborted) { controller.abort(); break; }
+      s.addEventListener('abort', onAbort, { once: true });
+    }
+    return controller.signal;
+  };
+}
+
+// timedFetch — zelfde patroon als CalorieTracker
+function timedFetch(url, ms = 20000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(id));
+}
+
+async function proxyFetch(feedUrl) {
+  const proxies = WORKER_URL
+    ? [WORKER_URL + '?url=', ...PUBLIC_PROXIES]
+    : PUBLIC_PROXIES;
+
+  let lastErr;
+  for (let i = 0; i < proxies.length; i++) {
     try {
-      const r = await fetch(PROXIES[i] + encodeURIComponent(url), { signal: controller.signal });
-      clearTimeout(timer);
-      if (r.ok) return await r.text();
+      const r = await timedFetch(proxies[i] + encodeURIComponent(feedUrl), 20000);
+      if (r.ok) {
+        console.log('[proxy OK]', proxies[i].split('/')[2]);
+        return await r.text();
+      }
       throw new Error('HTTP ' + r.status);
     } catch(e) {
-      clearTimeout(timer);
-      console.warn('[proxy ' + i + ' fail]', PROXIES[i].split('/')[2], e.message);
-      if (i === PROXIES.length - 1) throw e;
+      lastErr = e;
+      console.warn('[proxy ' + i + ' fail]', proxies[i].split('/')[2], e.message);
     }
   }
+  throw lastErr;
 }
 
 
