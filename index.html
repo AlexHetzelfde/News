@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Briefing">
+  <meta name="theme-color" content="#0A0E14">
+  <title>Briefing</title>
+  <link rel="manifest" href='data:application/manifest+json,{"name":"Briefing","short_name":"Briefing","start_url":"/","display":"standalone","background_color":"#0A0E14","theme_color":"#0A0E14","icons":[{"src":"https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/1f4f0.png","sizes":"72x72","type":"image/png"}]}'>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+    :root {
+      --bg:           #0A0E14;
+      --surface:      #131920;
+      --surface2:     #1B2333;
+      --border:       #1E2A38;
+      --accent:       #39D353;
+      --accent-glow:  rgba(57, 211, 83, 0.12);
+      --orange:       #FF6B35;
+      --red:          #F85149;
+      --text:         #CDD9E5;
+      --text-dim:     #768696;
+      --text-dimmer:  #3D4F61;
+      --tab-h:        58px;
+      --header-h:     50px;
+      --safe-b:       env(safe-area-inset-bottom, 0px);
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      height: 100dvh;
+      overflow: hidden;
+    }
+
+    /* ── HEADER ─────────────────────────────────────────── */
+    header {
+      position: fixed; top: 0; left: 0; right: 0;
+      height: var(--header-h);
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 14px;
+      z-index: 100;
+    }
+
+    .logo {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 15px; font-weight: 700;
+      letter-spacing: 0.18em;
+      color: var(--accent);
+      display: flex; align-items: center; gap: 7px;
+    }
+    .logo-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      animation: pulse 2.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity: 1; box-shadow: 0 0 8px var(--accent); }
+      50% { opacity: 0.4; box-shadow: 0 0 2px var(--accent); }
+    }
+
+    .header-right { display: flex; align-items: center; gap: 4px; }
+
+    .last-updated {
+      font-family: 'SF Mono', monospace;
+      font-size: 11px; color: var(--text-dimmer);
+      margin-right: 6px;
+    }
+
+    .icon-btn {
+      background: none; border: none;
+      color: var(--text-dim); font-size: 19px;
+      cursor: pointer; padding: 7px; border-radius: 8px;
+      transition: color 0.15s, background 0.15s;
+      display: flex; align-items: center;
+    }
+    .icon-btn:active { color: var(--text); background: var(--surface2); }
+    .icon-btn.spinning { animation: spin 0.9s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── MAIN SCROLL AREA ───────────────────────────────── */
+    main {
+      position: fixed;
+      top: var(--header-h);
+      bottom: calc(var(--tab-h) + var(--safe-b));
+      left: 0; right: 0;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      scroll-behavior: smooth;
+    }
+
+    .tab-pane { display: none; padding: 10px 12px 24px; }
+    .tab-pane.active { display: block; }
+
+    /* ── BOTTOM NAV ─────────────────────────────────────── */
+    nav {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      height: calc(var(--tab-h) + var(--safe-b));
+      padding-bottom: var(--safe-b);
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+      display: flex; z-index: 100;
+    }
+
+    .tab-btn {
+      flex: 1; background: none; border: none;
+      color: var(--text-dimmer); font-size: 11px; font-weight: 500;
+      cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 3px; letter-spacing: 0.06em;
+      transition: color 0.15s;
+      position: relative;
+    }
+    .tab-btn .ti { font-size: 21px; }
+    .tab-btn.active { color: var(--accent); }
+    .tab-btn.active::after {
+      content: '';
+      position: absolute; top: 0; left: 25%; right: 25%;
+      height: 2px; background: var(--accent);
+      border-radius: 0 0 2px 2px;
+    }
+    .tab-badge {
+      position: absolute; top: 6px; right: calc(50% - 14px);
+      background: var(--orange); color: #fff;
+      font-size: 9px; font-weight: 700;
+      min-width: 16px; height: 16px;
+      border-radius: 8px; padding: 0 4px;
+      display: none; align-items: center; justify-content: center;
+      font-family: 'SF Mono', monospace;
+    }
+    .tab-badge.visible { display: flex; }
+
+    /* ── CARDS ──────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 9px;
+      overflow: hidden;
+    }
+
+    .card-inner { padding: 12px 13px 10px; }
+
+    .card-title {
+      font-size: 14.5px; font-weight: 600; line-height: 1.4;
+      color: var(--text); margin-bottom: 7px;
+    }
+
+    .card-meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+
+    .badge {
+      font-size: 10.5px; font-weight: 700;
+      letter-spacing: 0.06em;
+      padding: 2px 7px; border-radius: 4px;
+      font-family: 'SF Mono', monospace;
+    }
+    .b-BBC               { background: #E6394618; color: #E85060; border: 1px solid #E6394630; }
+    .b-NOS               { background: #FF660018; color: #FF8844; border: 1px solid #FF660030; }
+    .b-NRK               { background: #4A90D918; color: #6AAEE0; border: 1px solid #4A90D930; }
+    .b-reddit            { background: #FF450018; color: #FF8060; border: 1px solid #FF450030; }
+
+    .ts {
+      font-size: 11px; color: var(--text-dimmer);
+      font-family: 'SF Mono', monospace;
+    }
+
+    .card-snippet {
+      font-size: 13px; color: var(--text-dim);
+      line-height: 1.5; margin-top: 6px;
+    }
+
+    .card-actions {
+      display: flex;
+      border-top: 1px solid var(--border);
+      margin-top: 10px; padding-top: 0;
+    }
+    .ca {
+      flex: 1; padding: 9px 12px;
+      font-size: 12px; font-weight: 500; letter-spacing: 0.04em;
+      color: var(--text-dim); text-decoration: none;
+      text-align: center;
+      transition: color 0.15s, background 0.15s;
+      border-radius: 0;
+    }
+    .ca:active { background: var(--surface2); }
+    .ca + .ca { border-left: 1px solid var(--border); }
+    .ca.accent { color: var(--accent); }
+
+    /* ── CLUSTER CARDS ──────────────────────────────────── */
+    .cluster {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+
+    .cluster-head { padding: 13px 14px 12px; }
+
+    .cluster-signal {
+      font-family: 'SF Mono', monospace;
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 0.12em;
+      color: var(--orange);
+      margin-bottom: 5px;
+    }
+
+    .cluster-title {
+      font-size: 16px; font-weight: 700; line-height: 1.3;
+      color: var(--text); margin-bottom: 9px;
+    }
+
+    .cluster-badges { display: flex; gap: 5px; flex-wrap: wrap; }
+
+    .summary-area {
+      background: var(--accent-glow);
+      border-top: 1px solid rgba(57,211,83,0.18);
+      border-bottom: 1px solid rgba(57,211,83,0.18);
+      padding: 12px 14px;
+      font-size: 13px; line-height: 1.65; color: var(--text);
+      display: none;
+    }
+    .summary-area.visible { display: block; }
+
+    .ai-label {
+      font-family: 'SF Mono', monospace;
+      font-size: 10px; font-weight: 700;
+      letter-spacing: 0.14em; color: var(--accent);
+      margin-bottom: 7px;
+    }
+
+    .art-row {
+      display: flex; align-items: flex-start;
+      padding: 10px 14px; gap: 10px;
+      border-top: 1px solid var(--border);
+      text-decoration: none; color: inherit;
+      transition: background 0.1s;
+    }
+    .art-row:active { background: var(--surface2); }
+    .art-row-title {
+      flex: 1; font-size: 13px; font-weight: 500; line-height: 1.4; color: var(--text);
+    }
+    .art-row-meta {
+      display: flex; flex-direction: column; align-items: flex-end;
+      gap: 4px; flex-shrink: 0;
+    }
+
+    .summary-btn {
+      width: 100%; padding: 10px;
+      background: none; border: none;
+      border-top: 1px solid var(--border);
+      color: var(--accent);
+      font-size: 11.5px; font-weight: 700; letter-spacing: 0.1em;
+      font-family: 'SF Mono', monospace;
+      cursor: pointer; text-align: center;
+      transition: background 0.15s;
+    }
+    .summary-btn:active { background: var(--accent-glow); }
+    .summary-btn:disabled { color: var(--text-dimmer); cursor: default; }
+
+    /* ── MEDIA CARDS ────────────────────────────────────── */
+    .media-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 9px;
+      overflow: hidden;
+    }
+
+    .yt-wrap {
+      position: relative; padding-bottom: 56.25%;
+      background: #000;
+    }
+    .yt-wrap iframe {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%; border: none;
+    }
+
+    .img-preview {
+      width: 100%; max-height: 260px;
+      object-fit: cover; display: block;
+      background: var(--surface2);
+    }
+
+    .reddit-vid-link {
+      padding: 11px 14px;
+      background: rgba(255,107,53,0.06);
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .reddit-vid-link a { color: var(--orange); text-decoration: none; }
+
+    /* ── STATES ─────────────────────────────────────────── */
+    .state {
+      text-align: center; padding: 70px 24px;
+      color: var(--text-dimmer);
+    }
+    .state-ico { font-size: 38px; margin-bottom: 12px; }
+    .state-title { font-size: 15px; font-weight: 600; color: var(--text-dim); margin-bottom: 5px; }
+    .state-msg { font-size: 13px; }
+
+    .progress {
+      height: 2px; background: var(--border);
+      margin-bottom: 14px; border-radius: 1px; overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%; background: var(--accent);
+      animation: prog 1.8s ease-in-out infinite;
+      border-radius: 1px;
+    }
+    @keyframes prog {
+      0%   { width: 5%; transform: translateX(0); }
+      50%  { width: 60%; }
+      100% { width: 95%; transform: translateX(0); }
+    }
+
+    .section-sep {
+      font-family: 'SF Mono', monospace;
+      font-size: 10.5px; font-weight: 700; letter-spacing: 0.14em;
+      color: var(--text-dimmer);
+      margin: 14px 2px 8px;
+    }
+
+    /* ── SETTINGS SHEET ─────────────────────────────────── */
+    .overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.65);
+      z-index: 200; align-items: flex-end;
+    }
+    .overlay.open { display: flex; }
+
+    .sheet {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-bottom: none;
+      border-radius: 16px 16px 0 0;
+      width: 100%; padding: 20px 20px calc(20px + var(--safe-b));
+      position: relative;
+    }
+
+    .sheet-handle {
+      width: 36px; height: 4px;
+      background: var(--border); border-radius: 2px;
+      margin: 0 auto 18px;
+    }
+
+    .sheet-title {
+      font-size: 16px; font-weight: 700;
+      color: var(--text); margin-bottom: 18px;
+      font-family: 'SF Mono', monospace; letter-spacing: 0.08em;
+    }
+
+    .s-label {
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 0.1em; color: var(--text-dim);
+      display: block; margin-bottom: 6px;
+    }
+
+    .s-input {
+      width: 100%; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 12px; color: var(--text); font-size: 14px;
+      margin-bottom: 5px; outline: none;
+      transition: border-color 0.15s;
+    }
+    .s-input:focus { border-color: var(--accent); }
+
+    .s-hint {
+      font-size: 11.5px; color: var(--text-dimmer);
+      margin-bottom: 20px; line-height: 1.5;
+    }
+    .s-hint a { color: var(--accent); }
+
+    .s-save {
+      width: 100%; padding: 13px;
+      background: var(--accent); color: #000;
+      border: none; border-radius: 9px;
+      font-size: 14px; font-weight: 800;
+      letter-spacing: 0.06em; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">
+    <span class="logo-dot"></span>
+    BRIEFING
+  </div>
+  <div class="header-right">
+    <span class="last-updated" id="lastUpdated">—</span>
+    <button class="icon-btn" id="refreshBtn" onclick="refresh()" title="Vernieuwen">↻</button>
+    <button class="icon-btn" onclick="openSettings()" title="Instellingen">⚙</button>
+  </div>
+</header>
+
+<!-- MAIN -->
+<main id="main">
+  <div class="tab-pane active" id="pane-recent">
+    <div class="state"><div class="state-ico">📡</div><div class="state-title">Feeds ophalen…</div></div>
+  </div>
+  <div class="tab-pane" id="pane-relevantie">
+    <div class="state"><div class="state-ico">📊</div><div class="state-title">Ververs eerst</div><div class="state-msg">Ga naar Recent en tik ↻</div></div>
+  </div>
+  <div class="tab-pane" id="pane-media">
+    <div class="state"><div class="state-ico">🎬</div><div class="state-title">Ververs eerst</div><div class="state-msg">Ga naar Recent en tik ↻</div></div>
+  </div>
+</main>
+
+<!-- BOTTOM NAV -->
+<nav>
+  <button class="tab-btn active" onclick="switchTab('recent',this)">
+    <span class="ti">📰</span><span>Recent</span>
+    <span class="tab-badge" id="badge-recent"></span>
+  </button>
+  <button class="tab-btn" onclick="switchTab('relevantie',this)">
+    <span class="ti">🔥</span><span>Relevantie</span>
+    <span class="tab-badge" id="badge-relevantie"></span>
+  </button>
+  <button class="tab-btn" onclick="switchTab('media',this)">
+    <span class="ti">🎬</span><span>Media</span>
+    <span class="tab-badge" id="badge-media"></span>
+  </button>
+</nav>
+
+<!-- SETTINGS SHEET -->
+<div class="overlay" id="settingsOverlay" onclick="if(event.target===this)closeSettings()">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">⚙ INSTELLINGEN</div>
+    <label class="s-label">GEMINI API KEY</label>
+    <input class="s-input" type="password" id="geminiKeyInput" placeholder="AIza…">
+    <div class="s-hint">
+      Gemini 1.5 Flash · gratis t/m 1.500 req/dag<br>
+      <a href="https://aistudio.google.com/app/apikey" target="_blank">→ Key aanmaken op Google AI Studio</a>
+    </div>
+    <button class="s-save" onclick="saveSettings()">OPSLAAN</button>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════
+//  CONFIG
+// ════════════════════════════════════════════════════════
+const PROXY = 'https://api.allorigins.win/raw?url=';
+
+const FEEDS = [
+  { url:'https://feeds.bbci.co.uk/news/rss.xml?edition=uk', name:'BBC',  lang:'en', type:'news' },
+  { url:'https://feeds.nos.nl/nosnieuwsbinnenland',          name:'NOS',  lang:'nl', type:'news' },
+  { url:'https://feeds.nos.nl/nosnieuwsalgemeen',            name:'NOS',  lang:'nl', type:'news' },
+  { url:'https://www.nrk.no/nyheter/siste.rss',             name:'NRK',  lang:'no', type:'news' },
+  { url:'https://www.reddit.com/r/ukraine/.rss',            name:'r/ukraine',          lang:'en', type:'reddit' },
+  { url:'https://www.reddit.com/r/Military/.rss',           name:'r/Military',         lang:'en', type:'reddit' },
+  { url:'https://www.reddit.com/r/UkrainianConflict/.rss',  name:'r/UkrainianConflict',lang:'en', type:'reddit' },
+  { url:'https://www.reddit.com/r/worldnews/.rss',          name:'r/worldnews',        lang:'en', type:'reddit' },
+];
+
+const STOPWORDS = new Set([
+  // EN
+  'the','a','an','and','or','but','in','on','at','to','for','of','with','by','from','is','are',
+  'was','were','be','been','has','have','had','will','would','could','should','may','might','it',
+  'its','this','that','these','those','he','she','they','we','you','as','after','before','during',
+  'about','over','under','into','through','against','says','said','after','amid','what','when',
+  'who','how','why','where','which','than','more','also','just','been','being','their','there',
+  'then','than','them','they','time','people','report','new','two','three','four','five','six',
+  // NL
+  'de','het','een','van','in','is','op','te','dat','zijn','ook','niet','hij','ze','we','aan',
+  'er','als','bij','dan','die','dit','door','maar','met','nog','om','over','uit','voor','wordt',
+  'zich','naar','geen','meer','heeft','worden','werd','waren','haar','hun','zijn','zijn','heeft',
+  'kunnen','moet','gaat','jaar','twee','drie',
+  // NO
+  'og','i','en','et','til','fra','er','ikke','som','på','med','at','av','men','har','seg','ble',
+  'om','så','vi','bli','være','hun','ham','den','ny','nye','det','han','sin','sitt','de','for',
+]);
+
+// ════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════
+let newsArticles   = [];
+let redditPosts    = [];
+let cachedClusters = [];
+let geminiKey      = localStorage.getItem('geminiKey') || '';
+
+// ════════════════════════════════════════════════════════
+//  UTILS
+// ════════════════════════════════════════════════════════
+const dec = document.createElement('textarea');
+function decodeHtml(s) { dec.innerHTML = s || ''; return dec.value; }
+
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function ago(d) {
+  if (!d || isNaN(d)) return '?';
+  const s = (Date.now() - d) / 1000;
+  if (s < 60)   return Math.floor(s)  + 's';
+  if (s < 3600)  return Math.floor(s/60)   + 'm';
+  if (s < 86400) return Math.floor(s/3600)  + 'u';
+  return Math.floor(s/86400) + 'd';
+}
+
+function translateHref(url, lang) {
+  if (lang === 'nl') return url;
+  return `https://translate.google.com/translate?sl=auto&tl=nl&u=${encodeURIComponent(url)}`;
+}
+
+function badgeClass(name) {
+  if (name === 'BBC') return 'b-BBC';
+  if (name === 'NOS') return 'b-NOS';
+  if (name === 'NRK') return 'b-NRK';
+  return 'b-reddit';
+}
+
+function keywords(text) {
+  return text.toLowerCase()
+    .replace(/[^a-z\u00C0-\u024F\s]/g,' ')
+    .split(/\s+/)
+    .filter(w => w.length > 3 && !STOPWORDS.has(w));
+}
+
+function ytId(url) {
+  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+
+// ════════════════════════════════════════════════════════
+//  FETCH
+// ════════════════════════════════════════════════════════
+async function fetchFeed(feed) {
+  try {
+    const r = await fetch(PROXY + encodeURIComponent(feed.url), { signal: AbortSignal.timeout(10000) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const txt = await r.text();
+    const doc = new DOMParser().parseFromString(txt, 'text/xml');
+    const isAtom = !!doc.querySelector('feed');
+    const items = Array.from(doc.querySelectorAll(isAtom ? 'entry' : 'item'));
+    return items.map(el => parseItem(el, feed, isAtom));
+  } catch (e) {
+    console.warn('[feed fail]', feed.name, e.message);
+    return [];
+  }
+}
+
+function parseItem(el, feed, isAtom) {
+  if (isAtom) {
+    // Reddit Atom
+    const title = decodeHtml(el.querySelector('title')?.textContent || '');
+    const link  = el.querySelector('link[rel="alternate"]')?.getAttribute('href')
+               || el.querySelector('link')?.getAttribute('href') || '';
+    const date  = new Date(el.querySelector('updated')?.textContent || '');
+    const raw   = el.querySelector('content')?.textContent || '';
+
+    // Parse embedded HTML for media
+    const cdoc  = new DOMParser().parseFromString(raw, 'text/html');
+    let mUrl = null, mType = null;
+
+    for (const a of cdoc.querySelectorAll('a[href]')) {
+      const h = a.getAttribute('href') || '';
+      // Skip self-referential reddit links (comments links)
+      if (h.includes('reddit.com/r/') && h.includes('/comments/')) continue;
+      if (/youtube\.com\/watch|youtu\.be\//.test(h)) { mUrl=h; mType='youtube'; break; }
+      if (/v\.redd\.it|reddit\.com\/video/.test(h))  { mUrl=link; mType='reddit-video'; break; }
+      if (/i\.redd\.it|imgur\.com/.test(h) || /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(h)) {
+        mUrl=h; mType='image'; break;
+      }
+    }
+    // Fallback: detect v.redd.it in raw HTML
+    if (!mType && raw.includes('v.redd.it')) { mUrl=link; mType='reddit-video'; }
+
+    // Thumbnail
+    const thumb = el.querySelector('thumbnail');
+    const thumbSrc = thumb?.getAttribute('url') || thumb?.textContent || null;
+
+    return { title, link, date, snippet:'', source:feed.name, lang:feed.lang,
+             type:'reddit', mUrl, mType, thumb:thumbSrc };
+  } else {
+    // Standard RSS
+    const title = decodeHtml(el.querySelector('title')?.textContent || '');
+    const linkEl = el.querySelector('link');
+    const link   = linkEl?.textContent?.trim() || linkEl?.getAttribute('href') || '';
+    const date   = new Date(el.querySelector('pubDate')?.textContent || '');
+    const raw    = el.querySelector('description')?.textContent || '';
+    const snippet = raw.replace(/<[^>]+>/g,'').trim().slice(0,220);
+
+    const enc   = el.querySelector('enclosure');
+    const mUrl  = enc?.getAttribute('url') || null;
+    const mType = mUrl && /\.(mp4|webm|mov)/i.test(mUrl) ? 'video'
+                : mUrl && /\.(jpg|jpeg|png|gif)/i.test(mUrl) ? 'image' : null;
+
+    return { title, link, date, snippet, source:feed.name, lang:feed.lang,
+             type:'news', mUrl, mType, thumb:null };
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  CLUSTER
+// ════════════════════════════════════════════════════════
+function cluster(articles) {
+  const news = articles.filter(a => a.type === 'news' && a.title);
+
+  // Keyword frequency — unique per article
+  const freq = {};
+  news.forEach(a => {
+    [...new Set(keywords(a.title))].forEach(w => { freq[w] = (freq[w]||0) + 1; });
+  });
+
+  // Words in 2+ articles, sorted by count
+  const topics = Object.entries(freq)
+    .filter(([,c]) => c >= 2)
+    .sort((a,b) => b[1]-a[1])
+    .map(([w]) => w);
+
+  const clusters = [];
+  const seen = new Set();
+
+  for (const topic of topics) {
+    const matches = news.filter(a => !seen.has(a.link) && keywords(a.title).includes(topic));
+    if (matches.length < 2) continue;
+    const bestTitle = matches.reduce((b,a) => a.title.length > b.title.length ? a : b).title;
+    clusters.push({ keyword:topic, title:bestTitle, articles:matches });
+    matches.forEach(a => seen.add(a.link));
+  }
+
+  const remaining = news.filter(a => !seen.has(a.link));
+  return { clusters: clusters.sort((a,b) => b.articles.length - a.articles.length), remaining };
+}
+
+// ════════════════════════════════════════════════════════
+//  GEMINI
+// ════════════════════════════════════════════════════════
+async function geminiSummary(articles) {
+  if (!geminiKey) { openSettings(); return null; }
+
+  const titles = articles.map((a,i) => `${i+1}. [${a.source}] ${a.title}`).join('\n');
+  const prompt = `Schrijf een feitelijke Nederlandse samenvatting van maximaal 3 zinnen op basis van deze nieuwstitels over hetzelfde onderwerp. Geen inleiding, direct de kern.\n\n${titles}`;
+
+  try {
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+      { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ contents:[{ parts:[{ text:prompt }] }] }) }
+    );
+    const d = await r.json();
+    return d.candidates?.[0]?.content?.parts?.[0]?.text || null;
+  } catch(e) {
+    console.warn('Gemini error', e);
+    return null;
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  RENDER: RECENT
+// ════════════════════════════════════════════════════════
+function renderRecent(articles) {
+  const pane = document.getElementById('pane-recent');
+  if (!articles.length) {
+    pane.innerHTML = `<div class="state"><div class="state-ico">📭</div><div class="state-title">Geen artikelen</div><div class="state-msg">Controleer de feeds</div></div>`;
+    return;
+  }
+  const sorted = [...articles].sort((a,b) => b.date - a.date);
+  pane.innerHTML = sorted.map(a => articleCard(a)).join('');
+
+  const b = document.getElementById('badge-recent');
+  b.textContent = sorted.length;
+  b.classList.add('visible');
+}
+
+function articleCard(a) {
+  const lang = a.lang;
+  const openUrl = lang !== 'nl' ? translateHref(a.link, lang) : a.link;
+  const translateBtn = lang !== 'nl'
+    ? `<a class="ca" href="${esc(translateHref(a.link,lang))}" target="_blank">🇳🇱 NL</a>` : '';
+
+  return `<div class="card">
+    <div class="card-inner">
+      <div class="card-title">${esc(a.title)}</div>
+      <div class="card-meta">
+        <span class="badge ${badgeClass(a.source)}">${esc(a.source)}</span>
+        <span class="ts">${ago(a.date)}</span>
+      </div>
+      ${a.snippet ? `<div class="card-snippet">${esc(a.snippet)}</div>` : ''}
+      <div class="card-actions">
+        <a class="ca accent" href="${esc(a.link)}" target="_blank">Lezen →</a>
+        ${translateBtn}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ════════════════════════════════════════════════════════
+//  RENDER: RELEVANTIE
+// ════════════════════════════════════════════════════════
+function renderRelevantie(clusters, remaining) {
+  const pane = document.getElementById('pane-relevantie');
+  if (!clusters.length) {
+    pane.innerHTML = `<div class="state"><div class="state-ico">🤷</div><div class="state-title">Te weinig overlap</div><div class="state-msg">Meer bronnen of artikelen nodig</div></div>`;
+    return;
+  }
+
+  cachedClusters = clusters;
+
+  let html = clusters.map((c,i) => clusterCard(c,i)).join('');
+
+  if (remaining.length) {
+    html += `<div class="section-sep">OVERIG (${remaining.length})</div>`;
+    html += remaining.map(a => articleCard(a)).join('');
+  }
+
+  pane.innerHTML = html;
+
+  const b = document.getElementById('badge-relevantie');
+  b.textContent = clusters.length;
+  b.classList.add('visible');
+}
+
+function clusterCard(c, idx) {
+  const uniqueSources = [...new Set(c.articles.map(a => a.source))];
+  const badges = uniqueSources.map(s => `<span class="badge ${badgeClass(s)}">${esc(s)}</span>`).join('');
+
+  const rows = c.articles.map(a => {
+    const href = a.lang !== 'nl' ? translateHref(a.link, a.lang) : a.link;
+    return `<a class="art-row" href="${esc(href)}" target="_blank">
+      <span class="art-row-title">${esc(a.title)}</span>
+      <span class="art-row-meta">
+        <span class="badge ${badgeClass(a.source)}" style="font-size:10px">${esc(a.source)}</span>
+        <span class="ts">${ago(a.date)}</span>
+      </span>
+    </a>`;
+  }).join('');
+
+  return `<div class="cluster">
+    <div class="cluster-head">
+      <div class="cluster-signal">▲ ${c.articles.length} BRONNEN · ${c.keyword.toUpperCase()}</div>
+      <div class="cluster-title">${esc(c.title)}</div>
+      <div class="cluster-badges">${badges}</div>
+    </div>
+    <div class="summary-area" id="sum-${idx}">
+      <div class="ai-label">◆ AI SAMENVATTING</div>
+      <div id="sum-text-${idx}"></div>
+    </div>
+    ${rows}
+    <button class="summary-btn" id="sum-btn-${idx}" onclick="loadSummary(${idx})">◆ AI SAMENVATTING LADEN</button>
+  </div>`;
+}
+
+async function loadSummary(idx) {
+  const btn  = document.getElementById(`sum-btn-${idx}`);
+  const box  = document.getElementById(`sum-${idx}`);
+  const text = document.getElementById(`sum-text-${idx}`);
+  const c    = cachedClusters[idx];
+  if (!c) return;
+
+  btn.textContent = '⟳ LADEN…';
+  btn.disabled = true;
+
+  const result = await geminiSummary(c.articles);
+
+  if (result) {
+    text.textContent = result;
+    box.classList.add('visible');
+    btn.style.display = 'none';
+  } else {
+    btn.textContent = '◆ AI SAMENVATTING LADEN';
+    btn.disabled = false;
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  RENDER: MEDIA
+// ════════════════════════════════════════════════════════
+function renderMedia(posts) {
+  const pane = document.getElementById('pane-media');
+
+  // Only posts that have some form of media
+  const media = posts.filter(p => p.mType || (p.thumb && p.thumb !== 'self' && p.thumb !== 'default' && p.thumb !== 'nsfw'));
+
+  if (!media.length) {
+    pane.innerHTML = `<div class="state"><div class="state-ico">🎬</div><div class="state-title">Geen media gevonden</div><div class="state-msg">Reddit posts zonder beeld/video worden gefilterd</div></div>`;
+    return;
+  }
+
+  pane.innerHTML = media.map(mediaCard).filter(Boolean).join('');
+
+  const b = document.getElementById('badge-media');
+  b.textContent = media.length;
+  b.classList.add('visible');
+}
+
+function mediaCard(p) {
+  let top = '';
+
+  if (p.mType === 'youtube') {
+    const id = ytId(p.mUrl);
+    if (id) top = `<div class="yt-wrap"><iframe src="https://www.youtube.com/embed/${id}" allowfullscreen loading="lazy"></iframe></div>`;
+  } else if (p.mType === 'image' && p.mUrl) {
+    top = `<img class="img-preview" src="${esc(p.mUrl)}" loading="lazy" onerror="this.style.display='none'">`;
+  } else if (p.mType === 'reddit-video') {
+    top = `<div class="reddit-vid-link">▶ <a href="${esc(p.link)}" target="_blank">Video bekijken op Reddit →</a></div>`;
+  } else if (p.thumb) {
+    top = `<img class="img-preview" src="${esc(p.thumb)}" loading="lazy" onerror="this.style.display='none'" style="max-height:180px">`;
+  }
+
+  if (!top) return '';
+
+  return `<div class="media-card">
+    ${top}
+    <div class="card-inner">
+      <div class="card-title" style="font-size:14px">${esc(p.title)}</div>
+      <div class="card-meta">
+        <span class="badge b-reddit">${esc(p.source)}</span>
+        <span class="ts">${ago(p.date)}</span>
+      </div>
+      <div class="card-actions">
+        <a class="ca accent" href="${esc(p.link)}" target="_blank">Open op Reddit →</a>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ════════════════════════════════════════════════════════
+//  TAB SWITCHING
+// ════════════════════════════════════════════════════════
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('pane-' + name).classList.add('active');
+  btn.classList.add('active');
+  document.getElementById('main').scrollTop = 0;
+}
+
+// ════════════════════════════════════════════════════════
+//  REFRESH
+// ════════════════════════════════════════════════════════
+async function refresh() {
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('spinning');
+
+  const loading = `<div class="progress"><div class="progress-bar"></div></div>
+    <div class="state"><div class="state-title">Feeds ophalen…</div></div>`;
+  document.getElementById('pane-recent').innerHTML = loading;
+
+  try {
+    const results = await Promise.allSettled(FEEDS.map(fetchFeed));
+    const all = results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+
+    // Deduplicate by URL
+    const seen = new Set();
+    const deduped = all.filter(a => {
+      if (!a.link || seen.has(a.link)) return false;
+      seen.add(a.link); return true;
+    }).filter(a => a.title);
+
+    newsArticles = deduped.filter(a => a.type === 'news');
+    redditPosts  = deduped.filter(a => a.type === 'reddit');
+
+    renderRecent(newsArticles);
+    const { clusters, remaining } = cluster(newsArticles);
+    renderRelevantie(clusters, remaining);
+    renderMedia(redditPosts);
+
+    const now = new Date();
+    document.getElementById('lastUpdated').textContent =
+      now.getHours().toString().padStart(2,'0') + ':' +
+      now.getMinutes().toString().padStart(2,'0');
+
+  } catch(e) {
+    document.getElementById('pane-recent').innerHTML =
+      `<div class="state"><div class="state-ico">⚠️</div><div class="state-title">Laad fout</div><div class="state-msg">${esc(e.message)}</div></div>`;
+  } finally {
+    btn.classList.remove('spinning');
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  SETTINGS
+// ════════════════════════════════════════════════════════
+function openSettings() {
+  document.getElementById('geminiKeyInput').value = geminiKey;
+  document.getElementById('settingsOverlay').classList.add('open');
+}
+function closeSettings() {
+  document.getElementById('settingsOverlay').classList.remove('open');
+}
+function saveSettings() {
+  geminiKey = document.getElementById('geminiKeyInput').value.trim();
+  localStorage.setItem('geminiKey', geminiKey);
+  closeSettings();
+}
+
+// ════════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════════
+refresh();
+</script>
+</body>
+</html>
