@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Briefing">
   <meta name="theme-color" content="#0A0E14">
   <title>Briefing</title>
-  <link rel="manifest" href='data:application/manifest+json,{"name":"Briefing","short_name":"Briefing","start_url":"/","display":"standalone","background_color":"#0A0E14","theme_color":"#0A0E14","icons":[{"src":"https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/1f4f0.png","sizes":"72x72","type":"image/png"}]}'>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 
@@ -440,7 +440,7 @@
     <div class="sheet-handle"></div>
     <div class="sheet-title">⚙ INSTELLINGEN</div>
     <label class="s-label">GEMINI API KEY</label>
-    <input class="s-input" type="password" id="geminiKeyInput" placeholder="AIza…">
+    <input class="s-input" type="text" id="geminiKeyInput" placeholder="AIza…" autocomplete="off" spellcheck="false">
     <div class="s-hint">
       Gemini 1.5 Flash · gratis t/m 1.500 req/dag<br>
       <a href="https://aistudio.google.com/app/apikey" target="_blank">→ Key aanmaken op Google AI Studio</a>
@@ -453,7 +453,29 @@
 // ════════════════════════════════════════════════════════
 //  CONFIG
 // ════════════════════════════════════════════════════════
-const PROXY = 'https://api.allorigins.win/raw?url=';
+const PROXIES = [
+  'https://corsproxy.io/?url=',
+  'https://api.allorigins.win/raw?url=',
+  'https://api.codetabs.com/v1/proxy?quest=',
+];
+
+async function proxyFetch(url) {
+  for (let i = 0; i < PROXIES.length; i++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 22000);
+    try {
+      const r = await fetch(PROXIES[i] + encodeURIComponent(url), { signal: controller.signal });
+      clearTimeout(timer);
+      if (r.ok) return await r.text();
+      throw new Error('HTTP ' + r.status);
+    } catch(e) {
+      clearTimeout(timer);
+      console.warn('[proxy ' + i + ' fail]', PROXIES[i].split('/')[2], e.message);
+      if (i === PROXIES.length - 1) throw e;
+    }
+  }
+}
+
 
 const FEEDS = [
   { url:'https://feeds.bbci.co.uk/news/rss.xml?edition=uk', name:'BBC',  lang:'en', type:'news' },
@@ -542,9 +564,7 @@ function ytId(url) {
 // ════════════════════════════════════════════════════════
 async function fetchFeed(feed) {
   try {
-    const r = await fetch(PROXY + encodeURIComponent(feed.url), { signal: AbortSignal.timeout(10000) });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const txt = await r.text();
+    const txt = await proxyFetch(feed.url);
     const doc = new DOMParser().parseFromString(txt, 'text/xml');
     const isAtom = !!doc.querySelector('feed');
     const items = Array.from(doc.querySelectorAll(isAtom ? 'entry' : 'item'));
