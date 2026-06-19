@@ -719,9 +719,22 @@ function parseItem(el, feed, isAtom) {
     const snippet = raw.replace(/<[^>]+>/g,'').trim().slice(0,220);
 
     const enc   = el.querySelector('enclosure');
-    const mUrl  = enc?.getAttribute('url') || null;
-    const mType = mUrl && /\.(mp4|webm|mov)/i.test(mUrl) ? 'video'
-                : mUrl && /\.(jpg|jpeg|png|gif)/i.test(mUrl) ? 'image' : null;
+    let mUrl  = enc?.getAttribute('url') || null;
+    let mType = mUrl && /\.(mp4|webm|mov)/i.test(mUrl) ? 'video'
+              : mUrl && /\.(jpg|jpeg|png|gif)/i.test(mUrl) ? 'image' : null;
+
+    // Fallback: media:thumbnail / media:content (vaak gebruikt door BBC/NOS)
+    if (!mUrl) {
+      const mediaThumb = el.getElementsByTagName('media:thumbnail')[0]
+                       || el.getElementsByTagName('media:content')[0];
+      const mtUrl = mediaThumb?.getAttribute('url');
+      if (mtUrl) { mUrl = mtUrl; mType = 'image'; }
+    }
+    // Laatste redmiddel: eerste <img> in de description-HTML
+    if (!mUrl) {
+      const imgMatch = raw.match(/<img[^>]+src=["']([^"']+)["']/i);
+      if (imgMatch) { mUrl = imgMatch[1]; mType = 'image'; }
+    }
 
     return { title, link, date, snippet, source:feed.name, lang:feed.lang,
              type:'news', mUrl, mType, thumb:null };
@@ -736,6 +749,12 @@ function parseItem(el, feed, isAtom) {
 //   b) minstens TWEE woorden delen (ook als die generiek zijn)
 //  Gekoppelde artikelen worden via union-find getransitiveerd, zodat 3+
 //  bronnen over hetzelfde onderwerp automatisch in één cluster vallen.
+//
+//  LET OP: dit matcht alleen op woorden in de ORIGINELE taal van de titel.
+//  Een BBC-titel (EN) en een NOS-titel (NL) over hetzelfde nieuws delen
+//  vrijwel nooit dezelfde woorden, dus clusters ontstaan vooral binnen
+//  dezelfde taal (bv. de twee NOS-feeds onderling). Voor echte cross-taal
+//  matching zou je titels eerst moeten vertalen voor je ze vergelijkt.
 // ════════════════════════════════════════════════════════
 function cluster(articles) {
   const news = articles.filter(a => a.type === 'news' && a.title);
@@ -790,9 +809,6 @@ async function geminiSummary(articles) {
   const titles = articles.map((a,i) => `${i+1}. [${a.source}] ${a.title}`).join('\n');
 
   try {
-    const r = await timedFetch('/api/summarize', 20000) // placeholder to keep timedFetch signature familiar
-      .catch(() => null);
-    // /api/summarize needs a POST body, so do the actual call directly:
     const resp = await fetch('/api/summarize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -817,30 +833,48 @@ function renderRecent(articles) {
     return;
   }
   const sorted = [...articles].sort((a,b) => b.date - a.date);
-  pane.innerHTML = sorted.map(a => articleCard(a)).join('');
+
+  const sourceCounts = {};
+  sorted.forEach(a => { sourceCounts[a.source] = (sourceCounts[a.source] || 0) + 1; });
+  const statline = statLine(sorted.length, Object.keys(sourceCounts).length);
+
+  pane.innerHTML = statline + sorted.map(a => articleCard(a)).join('');
 
   const b = document.getElementById('badge-recent');
   b.textContent = sorted.length;
   b.classList.add('visible');
 }
 
+function statLine(articleCount, sourceCount) {
+  return `<div class="stat-line">
+    <span><strong>${articleCount}</strong> artikelen</span>
+    <span class="stat-sep">·</span>
+    <span><strong>${sourceCount}</strong> bronnen</span>
+  </div>`;
+}
+
 function articleCard(a) {
   const lang = a.lang;
   const translateBtn = lang !== 'nl'
     ? `<a class="ca" href="${esc(translateHref(a.link,lang))}" target="_blank">🇳🇱 NL</a>` : '';
+  const thumb = a.mType === 'image' && a.mUrl
+    ? `<img class="card-thumb" src="${esc(a.mUrl)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '';
 
   return `<div class="card">
-    <div class="card-inner">
-      <div class="card-title">${esc(a.title)}</div>
-      <div class="card-meta">
-        <span class="badge ${badgeClass(a.source)}">${esc(a.source)}</span>
-        <span class="ts">${ago(a.date)}</span>
+    <div class="card-row">
+      <div class="card-inner">
+        <div class="card-title">${esc(a.title)}</div>
+        <div class="card-meta">
+          <span class="badge ${badgeClass(a.source)}">${esc(a.source)}</span>
+          <span class="ts">${ago(a.date)}</span>
+        </div>
+        ${a.snippet ? `<div class="card-snippet">${esc(a.snippet)}</div>` : ''}
       </div>
-      ${a.snippet ? `<div class="card-snippet">${esc(a.snippet)}</div>` : ''}
-      <div class="card-actions">
-        <a class="ca accent" href="${esc(a.link)}" target="_blank">Lezen →</a>
-        ${translateBtn}
-      </div>
+      ${thumb}
+    </div>
+    <div class="card-actions">
+      <a class="ca accent" href="${esc(a.link)}" target="_blank">Lezen →</a>
+      ${translateBtn}
     </div>
   </div>`;
 }
@@ -857,7 +891,16 @@ function renderRelevantie(clusters, remaining) {
 
   cachedClusters = clusters;
 
-  let html = clusters.map((c,i) => clusterCard(c,i)).join('');
+  const totalArticlesInClusters = clusters.reduce((s,c) => s + c.articles.length, 0);
+  let html = `<div class="stat-line">
+    <span><strong>${clusters.length}</strong> onderwerpen</span>
+    <span class="stat-sep">·</span>
+    <span><strong>${totalArticlesInClusters}</strong> artikelen</span>
+  </div>`;
+
+  // Hero: het onderwerp met de meeste bronnen krijgt een groot kaart bovenaan
+  html += heroCard(clusters[0], 0);
+  html += clusters.slice(1).map((c,i) => clusterCard(c,i+1)).join('');
 
   if (remaining.length) {
     html += `<div class="section-sep">OVERIG (${remaining.length})</div>`;
@@ -871,10 +914,60 @@ function renderRelevantie(clusters, remaining) {
   b.classList.add('visible');
 }
 
-function clusterCard(c, idx) {
-  const uniqueSources = [...new Set(c.articles.map(a => a.source))];
-  const badges = uniqueSources.map(s => `<span class="badge ${badgeClass(s)}">${esc(s)}</span>`).join('');
+// Segmentenbalk die laat zien hoe een cluster is opgebouwd uit bronnen
+// (i.p.v. een politieke links/midden/rechts-balk, die data hebben we niet)
+function sourceMixBar(articles) {
+  const counts = {};
+  articles.forEach(a => { counts[a.source] = (counts[a.source] || 0) + 1; });
+  const total = articles.length;
+  const entries = Object.entries(counts).sort((a,b) => b[1]-a[1]);
 
+  const segments = entries.map(([source,count]) => {
+    const pct = Math.round((count/total)*100);
+    const cls = badgeClass(source);
+    return `<div class="mix-seg mix-${cls}" style="width:${pct}%" title="${esc(source)}: ${count}"></div>`;
+  }).join('');
+
+  const labels = entries.map(([source,count]) => {
+    const pct = Math.round((count/total)*100);
+    return `<span class="mix-label"><span class="mix-dot ${badgeClass(source)}"></span>${esc(source)} ${pct}%</span>`;
+  }).join('');
+
+  return `<div class="mix-bar">${segments}</div><div class="mix-labels">${labels}</div>`;
+}
+
+function heroCard(c, idx) {
+  const uniqueSources = [...new Set(c.articles.map(a => a.source))];
+  const thumb = c.articles.find(a => a.mType === 'image' && a.mUrl);
+
+  const rows = c.articles.map(a => {
+    const href = a.lang !== 'nl' ? translateHref(a.link, a.lang) : a.link;
+    return `<a class="art-row" href="${esc(href)}" target="_blank">
+      <span class="art-row-title">${esc(a.title)}</span>
+      <span class="art-row-meta">
+        <span class="badge ${badgeClass(a.source)}" style="font-size:10px">${esc(a.source)}</span>
+        <span class="ts">${ago(a.date)}</span>
+      </span>
+    </a>`;
+  }).join('');
+
+  return `<div class="cluster hero">
+    ${thumb ? `<div class="hero-img-wrap"><img class="hero-img" src="${esc(thumb.mUrl)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentElement.remove()"><div class="hero-img-fade"></div><div class="hero-img-title">${esc(c.title)}</div></div>` : ''}
+    <div class="cluster-head">
+      <div class="cluster-signal">▲ MEEST GEDEELD · ${c.articles.length} BRONNEN</div>
+      ${!thumb ? `<div class="cluster-title">${esc(c.title)}</div>` : ''}
+      ${sourceMixBar(c.articles)}
+    </div>
+    ${rows}
+    <button class="summary-btn" id="sum-btn-${idx}" onclick="loadSummary(${idx})">◆ AI SAMENVATTING LADEN</button>
+    <div class="summary-area" id="sum-${idx}">
+      <div class="ai-label">◆ AI SAMENVATTING</div>
+      <div id="sum-text-${idx}"></div>
+    </div>
+  </div>`;
+}
+
+function clusterCard(c, idx) {
   const rows = c.articles.map(a => {
     const href = a.lang !== 'nl' ? translateHref(a.link, a.lang) : a.link;
     return `<a class="art-row" href="${esc(href)}" target="_blank">
@@ -890,14 +983,14 @@ function clusterCard(c, idx) {
     <div class="cluster-head">
       <div class="cluster-signal">▲ ${c.articles.length} BRONNEN · ${c.keyword.toUpperCase()}</div>
       <div class="cluster-title">${esc(c.title)}</div>
-      <div class="cluster-badges">${badges}</div>
+      ${sourceMixBar(c.articles)}
     </div>
+    ${rows}
+    <button class="summary-btn" id="sum-btn-${idx}" onclick="loadSummary(${idx})">◆ AI SAMENVATTING LADEN</button>
     <div class="summary-area" id="sum-${idx}">
       <div class="ai-label">◆ AI SAMENVATTING</div>
       <div id="sum-text-${idx}"></div>
     </div>
-    ${rows}
-    <button class="summary-btn" id="sum-btn-${idx}" onclick="loadSummary(${idx})">◆ AI SAMENVATTING LADEN</button>
   </div>`;
 }
 
@@ -939,7 +1032,7 @@ function renderMedia(posts) {
     return;
   }
 
-  pane.innerHTML = media.map(mediaCard).filter(Boolean).join('');
+  pane.innerHTML = statLine(media.length, new Set(media.map(p=>p.source)).size) + media.map(mediaCard).filter(Boolean).join('');
 
   const b = document.getElementById('badge-media');
   b.textContent = media.length;
