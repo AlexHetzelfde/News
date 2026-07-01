@@ -1,0 +1,18 @@
+name = "briefing-cron"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+
+# Draait elke 10 minuten, alleen tijdens uren dat er iemand wakker is
+# (5:00-23:00 UTC) — 's nachts heeft niemand iets aan verse feeds.
+[triggers]
+crons = ["*/10 5-23 * * *"]
+
+# Zelfde KV-namespace moet ook gebonden worden aan je Pages-project
+# (Pages dashboard > Settings > Functions > KV namespace bindings)
+# met dezelfde binding-naam: BRIEFING_KV
+[[kv_namespaces]]
+binding = "BRIEFING_KV"
+id = "VUL_HIER_JE_KV_NAMESPACE_ID_IN"
+
+# GEMINI_API_KEY wordt als secret gezet, niet hier:
+#   npx wrangler secret put GEMINI_API_KEY
